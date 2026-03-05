@@ -23,6 +23,7 @@ import numpy as np
 from monty.dev import deprecated
 from monty.io import zopen
 from monty.json import MSONable
+from sympy.physics.units import charge
 
 from pymatgen.core.structure import Structure
 from pymatgen.electronic_structure.bandstructure import LobsterBandStructureSymmLine
@@ -1244,16 +1245,21 @@ class Lobsterout(MSONable):
         """Get charge spillings and total spillings."""
         charge_spillings = []
         total_spillings = []
-        for line in data:
-            line_parts = line.split()
-            if len(line_parts) > 2 and line_parts[2] == "spilling:":
-                if line_parts[1] == "charge":
-                    charge_spillings.append(float(line_parts[3].replace("%", "")) / 100.0)
-                elif line_parts[1] == "total":
-                    total_spillings.append(float(line_parts[3].replace("%", "")) / 100.0)
+        try:
+            for line in data:
+                line_parts = line.split()
+                if len(line_parts) > 2 and line_parts[2] == "spilling:":
+                    if line_parts[1] == "charge":
+                        charge_spillings.append(float(line_parts[3].replace("%", "")) / 100.0)
+                    elif line_parts[1] == "total":
+                        total_spillings.append(float(line_parts[3].replace("%", "")) / 100.0)
 
-            if len(charge_spillings) == number_of_spins and len(total_spillings) == number_of_spins:
-                break
+                if len(charge_spillings) == number_of_spins and len(total_spillings) == number_of_spins:
+                    break
+        except Exception as e:
+            charge_spillings = []
+            total_spillings = []
+            warnings.warn(f"Couldn't extract spillings from lobsterout: {e}", stacklevel=2)
 
         return charge_spillings, total_spillings
 
