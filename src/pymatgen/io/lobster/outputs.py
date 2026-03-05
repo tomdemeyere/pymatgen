@@ -1256,10 +1256,9 @@ class Lobsterout(MSONable):
 
                 if len(charge_spillings) == number_of_spins and len(total_spillings) == number_of_spins:
                     break
-        except Exception as e:
+        except Exception:
             charge_spillings = []
             total_spillings = []
-            warnings.warn(f"Couldn't extract spillings from lobsterout: {e}", stacklevel=2)
 
         return charge_spillings, total_spillings
 
@@ -1899,7 +1898,13 @@ class Wavefunction:
     @staticmethod
     def _parse_file(
         filename: PathLike,
-    ) -> tuple[tuple[int, int, int], list[tuple[float, float, float]], list[float], list[float], list[float]]:
+    ) -> tuple[
+        tuple[int, int, int],
+        list[tuple[float, float, float]],
+        list[float],
+        list[float],
+        list[float],
+    ]:
         """Parse wave function file.
 
         Args:
@@ -1919,7 +1924,11 @@ class Wavefunction:
         reals = []
         imaginaries = []
         line_parts = lines[0].split()
-        grid: tuple[int, int, int] = (int(line_parts[7]), int(line_parts[8]), int(line_parts[9]))
+        grid: tuple[int, int, int] = (
+            int(line_parts[7]),
+            int(line_parts[8]),
+            int(line_parts[9]),
+        )
 
         for line in lines[1:]:
             line_parts = line.split()
