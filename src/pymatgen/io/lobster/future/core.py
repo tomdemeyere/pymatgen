@@ -40,6 +40,8 @@ class LobsterFile(MSONable):
 
     spins: list[Spin] | None = None
 
+    _transient_attributes: ClassVar[set[str]] = {"version_processors"}
+
     def __init__(
         self,
         filename: PathLike | None = None,
@@ -206,8 +208,11 @@ class LobsterFile(MSONable):
             "@version": None,
         }
 
+        transient_attributes = self.get_transient_attributes()
+
         for k, v in vars(self).items():
-            dictionary[k] = convert_spin_keys(v)
+            if k not in transient_attributes:
+                dictionary[k] = convert_spin_keys(v)
 
         return dictionary
 
@@ -254,6 +259,16 @@ class LobsterFile(MSONable):
             bool: True if multiple spins are present, False otherwise.
         """
         return self.has_spin and len(self.spins) > 1
+
+    @classmethod
+    def get_transient_attributes(cls) -> set[str]:
+        """Returns the set of transient attribute names that should be excluded from serialization."""
+        result = set()
+
+        for klass in reversed(cls.__mro__):
+            result |= getattr(klass, "_transient_attributes", set())
+
+        return result
 
 
 class LobsterInteractionsHolder(LobsterFile):
@@ -375,7 +390,7 @@ class LobsterInteractionsHolder(LobsterFile):
         """
         interaction_indices = self.get_interaction_indices_by_properties(indices, centers, cells, orbitals, length)
 
-        return [bond for i, bond in enumerate(self.interactions) if i in interaction_indices]
+        return [self.interactions[i] for i in interaction_indices]
 
     @staticmethod
     def get_label_from_interaction(
@@ -431,6 +446,23 @@ class LobsterInteractionsHolder(LobsterFile):
         """
         ...
 
+    def as_dict(self) -> dict[str, Any]:
+        """
+        Serializes the LobsterInteractionsHolder object to a dictionary, excluding NumPy arrays views on the data in the
+        interactions.
+
+        Returns:
+            dict[str, Any]: Dictionary representation of the object, including class and module information.
+        """
+        dictionary = super().as_dict()
+
+        dictionary["interactions"] = [
+            {key: val for key, val in interaction.items() if key not in ("coxx", "icoxx")}
+            for interaction in dictionary.get("interactions", [])
+        ]
+
+        return dictionary
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Deserialize object from dictionary produced by `as_dict`.
@@ -439,7 +471,7 @@ class LobsterInteractionsHolder(LobsterFile):
             d (dict): Dictionary produced by `as_dict`.
 
         Returns:
-            COXXCAR: Reconstructed instance.
+            Self: Reconstructed instance.
         """
         instance = super().from_dict(d)
         instance.data = np.asarray(instance.data, dtype=np.float64)

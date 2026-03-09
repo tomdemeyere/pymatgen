@@ -37,6 +37,8 @@ class COXXCAR(LobsterInteractionsHolder):
     )
     coxxcar_type: ClassVar[str]
 
+    _transient_attributes: ClassVar[set[str]] = {"interactions_regex"}
+
     @property
     def energies(self) -> NDArray[np.floating]:
         """Return the energy grid.
@@ -205,14 +207,12 @@ class COXXCAR(LobsterInteractionsHolder):
             list[int]: Sorted list of data column indices that match the filters.
         """
         return self.interaction_indices_to_data_indices_mapping(
-            sorted(
-                self.get_interaction_indices_by_properties(
-                    indices,
-                    centers,
-                    cells,
-                    orbitals,
-                    length,
-                )
+            self.get_interaction_indices_by_properties(
+                indices,
+                centers,
+                cells,
+                orbitals,
+                length,
             ),
             spins=spins or self.spins,
             data_type=data_type,
@@ -242,16 +242,8 @@ class COXXCAR(LobsterInteractionsHolder):
         Returns:
             np.ndarray: Array with shape (n_energies, n_selected_columns).
         """
-        bond_indices = self.get_interaction_indices_by_properties(indices, centers, cells, orbitals, length)
-        spins = spins or self.spins
-
         return self.data[
-            :,
-            self.interaction_indices_to_data_indices_mapping(
-                bond_indices,
-                spins=spins,
-                data_type=data_type,
-            ),
+            :, self.get_data_indices_by_properties(indices, centers, cells, orbitals, length, spins, data_type)
         ]
 
     def interaction_indices_to_data_indices_mapping(
@@ -278,6 +270,7 @@ class COXXCAR(LobsterInteractionsHolder):
 
         if spins in (1, -1):
             spins = [spins]
+
         if isinstance(interaction_indices, int):
             interaction_indices = [interaction_indices]
 
@@ -303,10 +296,8 @@ class COXXCAR(LobsterInteractionsHolder):
                     ]
                 )
 
-        real_indices = np.array(real_indices, dtype=int)
-        real_indices = np.intersect1d(real_indices, index_range)
-
-        return sorted(real_indices.tolist())
+        index_range = set(index_range)
+        return [i for i in real_indices if i in index_range]
 
 
 class COBICAR(COXXCAR):
@@ -341,7 +332,7 @@ class COHPCAR(COXXCAR):
 
     @classmethod
     def get_default_filename(cls) -> str:
-        """Return the default filename for COOPCAR."""
+        """Return the default filename for COHPCAR."""
         return "COHPCAR.LCFO.lobster" if cls.is_lcfo else "COHPCAR.lobster"
 
 

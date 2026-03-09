@@ -10,7 +10,7 @@ from pymatgen.electronic_structure.core import Spin
 if TYPE_CHECKING:
     from typing import TypeAlias
 
-    from numpy import floating, integer
+    from numpy import floating
 
 
 class LobsterInteraction(TypedDict):
@@ -30,7 +30,7 @@ class LobsterInteraction(TypedDict):
 
     index: int
     centers: list[str]
-    cells: list[list[int]] | NDArray[integer]
+    cells: list[list[int]]
     orbitals: list[str | None]
     length: float | None
 
