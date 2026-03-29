@@ -11,6 +11,7 @@ from monty.io import zopen
 from monty.json import MontyDecoder, MSONable
 
 from pymatgen.io.lobster.future.constants import LOBSTER_VERSION
+from pymatgen.io.lobster.future.types import Spin
 from pymatgen.io.lobster.future.utils import convert_spin_keys, restore_spin_keys
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-    from pymatgen.io.lobster.future.types import LobsterInteraction, LobsterInteractionData, Spin
+    from pymatgen.io.lobster.future.types import LobsterInteraction, LobsterInteractionData
     from pymatgen.util.typing import PathLike
 
 
@@ -214,6 +215,9 @@ class LobsterFile(MSONable):
             if k not in transient_attributes:
                 dictionary[k] = convert_spin_keys(v)
 
+        if "spins" in dictionary:
+            dictionary["spins"] = [s.value if isinstance(s, Spin) else s for s in dictionary["spins"]]
+
         return dictionary
 
     @classmethod
@@ -237,6 +241,9 @@ class LobsterFile(MSONable):
             setattr(instance, k, v)
 
         instance.filename = Path(instance.filename)
+
+        if instance.spins:
+            instance.spins = [Spin(s) if isinstance(s, int) else s for s in instance.spins]
 
         return instance
 
