@@ -9,6 +9,7 @@ import numpy as np
 
 from pymatgen.electronic_structure.core import Spin
 from pymatgen.io.lobster.future.core import LobsterInteractionsHolder
+from pymatgen.io.lobster.future.types import LobsterInteractionData
 from pymatgen.io.lobster.future.versioning import version_processor
 
 if TYPE_CHECKING:
@@ -298,6 +299,68 @@ class COXXCAR(LobsterInteractionsHolder):
 
         index_range = set(index_range)
         return [i for i in real_indices if i in index_range]
+
+    def get_interactions_from_data_indices(
+        self,
+        data_indices: int | list[int],
+    ) -> list[LobsterInteractionData]:
+        """Map column indices in `self.data` back to interactions.
+
+        This is the inverse of `interaction_indices_to_data_indices_mapping`.
+        Columns that map to the same interaction are merged into a single entry.
+
+        Args:
+            data_indices (int | list[int]): Single or list of column indices from `self.data`.
+
+        Returns:
+            list[LobsterInteractionData]: Unique interactions ordered by interaction index,
+                each containing only the coxx/icoxx entries and spins that the
+                requested columns correspond to.
+
+        Raises:
+            ValueError: If a data index is 0 (energy column) or out of the valid range.
+        """
+        if isinstance(data_indices, int):
+            data_indices = [data_indices]
+
+        merged: dict[int, LobsterInteractionData] = {}
+
+        for idx in data_indices:
+            if idx == 0:
+                raise ValueError("Index 0 is the energy index and does not map to any interaction.")
+
+            if idx < 0:
+                idx = self.data.shape[1] + idx
+
+            raw_index = (idx - 1) // 2
+            data_type = "icoxx" if (idx - 1) % 2 == 1 else "coxx"
+
+            if raw_index < self.num_bonds:
+                spin = Spin.up
+                interaction_index = raw_index
+            else:
+                spin = Spin.down
+                interaction_index = raw_index - self.num_bonds
+
+            source = self.interactions[interaction_index]
+
+            merged.setdefault(
+                interaction_index,
+                {
+                    "index": source["index"],
+                    "centers": source["centers"],
+                    "cells": source["cells"],
+                    "orbitals": source["orbitals"],
+                    "length": source["length"],
+                },
+            )
+
+            interaction = merged[interaction_index]
+
+            interaction.setdefault(data_type, {})
+            interaction[data_type][spin] = source[data_type][spin]
+
+        return [merged[i] for i in merged]
 
 
 class COBICAR(COXXCAR):
