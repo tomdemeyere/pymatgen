@@ -89,7 +89,7 @@ class DOSCAR(LobsterFile):
 
         self.spins = [Spin.up]
 
-        header_regex = r"\s*\S+\s+\S+\s+(\d+)\s+(\S+)\s+1\.0+(?:;(.*);(.*))?"
+        header_regex = r"\s*\S+\s+\S+\s+(\d+)\s+(\S+)\s+1\.0+(?:;(.*);(?:\s?X?)?(.*))?"
 
         efermi = None
         ndos = 0
