@@ -1467,81 +1467,34 @@ class TestLobsterMatrices(MatSciTest):
 
     def test_attributes(self):
         assert self.hamilton_matrices.efermi == -2.79650354
-        assert self.hamilton_matrices.centers == ["Na1", "Na1", "Na1", "Na1"]
+        assert self.hamilton_matrices.basis_functions == ["Na1_3s", "Na1_2p_y", "Na1_2p_z", "Na1_2p_x"]
+        assert self.hamilton_matrices.spins == [Spin.up, Spin.down]
+        assert len(self.hamilton_matrices.kpoints) == 1
+        assert self.hamilton_matrices.kpoints[0] == approx((0.0, 0.0, 0.0))
 
-        assert "1" in self.hamilton_matrices.matrices
-        assert len(self.hamilton_matrices.matrices) == 1
+        assert self.hamilton_matrices.matrices.shape == (2, 1, 4, 4)
+        assert self.hamilton_matrices.matrices.dtype == np.complex128
 
-        assert isinstance(self.hamilton_matrices.matrices["1"], dict)
-        for spin in self.hamilton_matrices.matrices["1"]:
-            assert spin in [Spin.up, Spin.down]
-            assert isinstance(self.hamilton_matrices.matrices["1"][spin], np.ndarray)
-            assert self.hamilton_matrices.matrices["1"][spin].shape == (4, 4)
-
-        assert self.hamilton_matrices.orbitals == ["3s", "2p_y", "2p_z", "2p_x"]
-
-        with pytest.raises(KeyError):
-            assert self.hamilton_matrices.matrices["2"][Spin.down]
-
-        assert self.hamilton_matrices.matrices["1"][Spin.up][0, 0].real == approx(-3.02170000)
-        assert self.hamilton_matrices.matrices["1"][Spin.up][0, 0].imag == approx(0.0)
-
-        assert self.hamilton_matrices.get_onsite_values("Na1", "3s") == approx(
-            (-3.0217 + 2.79650354 - 1.39420000 + 2.79650354) / 2
-        )
-
-        assert self.hamilton_matrices.get_onsite_values("Na1", "2p_x") == approx(
-            (-28.56640000 + 2.79650354 - 28.48100000 + 2.79650354) / 2
-        )
-
-        onsite_values = self.hamilton_matrices.get_onsite_values()
-        assert isinstance(onsite_values, dict)
-
-        for key in onsite_values:
-            assert key in ["Na1_3s", "Na1_2p_y", "Na1_2p_z", "Na1_2p_x"]
-            assert isinstance(onsite_values[key], float)
+        assert self.hamilton_matrices.matrices[0, 0, 0, 0].real == approx(-3.02170000)
+        assert self.hamilton_matrices.matrices[0, 0, 0, 0].imag == approx(0.0)
+        assert self.hamilton_matrices.matrices[1, 0, 0, 0].real == approx(-1.39420000)
+        assert self.hamilton_matrices.matrices[1, 0, 3, 3].real == approx(-28.48100000)
 
         assert self.overlap_matrices.efermi is None
-        assert self.overlap_matrices.centers == ["Si1", "Si1", "Si1", "Si1"]
-        assert self.overlap_matrices.orbitals == ["3s", "3p_y", "3p_z", "3p_x"]
-
-        assert "1" in self.overlap_matrices.matrices
-        assert len(self.overlap_matrices.matrices) == 1
-
-        assert isinstance(self.overlap_matrices.matrices["1"], dict)
-        for spin in self.overlap_matrices.matrices["1"]:
-            assert spin in [None]
-            assert isinstance(self.overlap_matrices.matrices["1"][spin], np.ndarray)
-            assert self.overlap_matrices.matrices["1"][spin].shape == (4, 4)
-
-        for m in range(4):
-            assert self.overlap_matrices.matrices["1"][None][m, m].real == approx(1.00000000)
+        assert self.overlap_matrices.basis_functions == ["Si1_3s", "Si1_3p_y", "Si1_3p_z", "Si1_3p_x"]
+        assert self.overlap_matrices.spins == [Spin.up]
+        assert self.overlap_matrices.matrices.shape == (1, 1, 4, 4)
+        assert self.overlap_matrices.matrices[0, 0].diagonal().real == approx(1.00000000)
 
         assert self.transfer_matrices.efermi is None
-        assert self.transfer_matrices.centers == ["C1", "C1", "C1", "C1"]
-        assert self.transfer_matrices.orbitals == ["2s", "2p_y", "2p_z", "2p_x"]
-
-        assert isinstance(self.transfer_matrices.matrices["1"], dict)
-
-        assert "1" in self.transfer_matrices.matrices
-        assert len(self.transfer_matrices.matrices) == 1
-
-        for spin in self.transfer_matrices.matrices["1"]:
-            assert spin in [Spin.up, Spin.down]
-            assert isinstance(self.transfer_matrices.matrices["1"][spin], np.ndarray)
-            assert self.transfer_matrices.matrices["1"][spin].shape == (4, 4)
+        assert self.transfer_matrices.basis_functions == ["C1_2s", "C1_2p_y", "C1_2p_z", "C1_2p_x"]
+        assert self.transfer_matrices.spins == [Spin.up, Spin.down]
+        assert self.transfer_matrices.matrices.shape == (2, 1, 4, 4)
 
         assert self.coeff_matrices.efermi is None
-        assert self.coeff_matrices.centers == ["Si1", "Si1", "Si1", "Si1"]
-        assert self.coeff_matrices.orbitals == ["3s", "3p_y", "3p_z", "3p_x"]
-
-        assert isinstance(self.coeff_matrices.matrices["1"], dict)
-        assert "1" in self.coeff_matrices.matrices
-        assert len(self.coeff_matrices.matrices) == 1
-        for spin in self.coeff_matrices.matrices["1"]:
-            assert spin in [Spin.up, Spin.down]
-            assert isinstance(self.coeff_matrices.matrices["1"][spin], np.ndarray)
-            assert self.coeff_matrices.matrices["1"][spin].shape == (4, 4)
+        assert self.coeff_matrices.basis_functions == ["Si1_3s", "Si1_3p_y", "Si1_3p_z", "Si1_3p_x"]
+        assert self.coeff_matrices.spins == [Spin.up, Spin.down]
+        assert self.coeff_matrices.matrices.shape == (2, 1, 4, 4)
 
 
 class TestPOLARIZATION(MatSciTest):

@@ -389,10 +389,6 @@ class LobsterMatrices(LobsterFile):
 
         self.matrix_type = matrix_type or self.get_matrix_type()
 
-        self.centers: list[str] = []
-        self.orbitals: list[str] = []
-        self.matrices: LobsterMatrixData = {}
-
         if self.matrix_type == "hamilton" and self.efermi is None:
             raise ValueError("Fermi energy (eV) required for Hamilton matrices")
 
@@ -417,81 +413,101 @@ class LobsterMatrices(LobsterFile):
     def parse_file(self) -> None:
         """Parse matrix data and set instance attributes.
 
+        The file is read twice. The first pass records the line number at which each
+        matrix block starts, together with the k-points and the basis function labels.
+        The second pass streams every block straight into ``self.matrices``, an array
+        of shape ``(n_spins, n_kpoints, n_basis_functions, n_bands)``.
+
         Returns:
             None
         """
-        header_regex_pattern = r"kpoint\s+(\d+)" if self.matrix_type == "overlap" else r"(\d+)\s+kpoint\s+(\d+)"
+        self.kpoints: list[tuple[float, ...]] = []
+        self.basis_functions: list[str] = []
+        self.spins: list[Spin] = []
 
-        current_kpoint, current_spin = None, None
-        multiplier = 1
+        spin_indices: dict[str, int] = {}
+        kpoint_indices: dict[str, int] = {}
+        block_positions: list[tuple[int, int, bool, int]] = []
+        matrix_dimension = 0
 
-        lines_generator = self.iterate_lines()
-        for line in lines_generator:
-            if header_match := re.search(header_regex_pattern, line):
-                header_match = header_match.groups()
-                if self.matrix_type != "overlap":
-                    current_spin = Spin.up if header_match[0] == "1" else Spin.down
+        current_spin_index = 0
+        current_kpoint_index = 0
+        is_imaginary_part = False
 
-                current_kpoint = header_match[-1]
-            elif "real parts" in line.lower():
-                multiplier = 1
-            elif "imag parts" in line.lower():
-                multiplier = 1j
-            elif line.startswith("basisfunction"):
-                num_parts = len(re.findall(r"band\s+\d+", line)) if "band" in line else len(line.split()[1:])
+        line_iterator = self.iterate_lines()
+        line_number = -1
 
-                if current_kpoint not in self.matrices:
-                    if current_kpoint is None:
-                        raise ValueError("Could not read any k-point before matrix data.")
+        for line in line_iterator:
+            line_number += 1
+            stripped_line = line.strip()
+            lowered_line = stripped_line.lower()
 
-                    self.matrices[current_kpoint] = {current_spin: np.zeros((num_parts, num_parts), dtype=complex)}
-                elif current_spin not in self.matrices[current_kpoint]:
-                    self.matrices[current_kpoint][current_spin] = np.zeros((num_parts, num_parts), dtype=complex)
+            if stripped_line.startswith("basisfunction"):
+                band_count = len(re.findall(r"band\s+\d+", line)) or len(stripped_line.split()) - 1
 
-                values = []
-                for _ in range(num_parts):
-                    line_split = next(lines_generator).split()
+                if matrix_dimension and band_count != matrix_dimension:
+                    raise ValueError(
+                        f"Expected {matrix_dimension} bands per block, found {band_count} at line {line_number}."
+                    )
+                matrix_dimension = band_count
 
-                    values.append([float(val) * multiplier for val in line_split[1:]])
+                block_positions.append(
+                    (current_spin_index, current_kpoint_index, is_imaginary_part, line_number + 1)
+                )
 
-                    if len(self.centers) != num_parts and len(self.orbitals) != num_parts:
-                        self.centers.append(line_split[0].split("_")[0].title())
-                        orbital = parse_orbital_from_text(line_split[0])
+                if not self.basis_functions:  # labels are identical in every block
+                    for _ in range(matrix_dimension):
+                        self.basis_functions.append(next(line_iterator).split()[0])
+                        line_number += 1
 
-                        if orbital is None:
-                            raise ValueError(
-                                f"Could not read orbital format: {line_split[0]} when parsing header line: {line}"
-                            )
+            elif lowered_line.endswith("real parts"):
+                is_imaginary_part = False
 
-                        self.orbitals.append(orbital)
+            elif lowered_line.endswith("imag parts"):
+                is_imaginary_part = True
 
-                self.matrices[current_kpoint][current_spin] += np.array(values, dtype=complex)
+            elif "kpoint" in lowered_line and (header_match := re.search(r"(?:(?:spin\s+)?(?P<spin>\d+)\s+)?kpoint\s+(?P<kpoint>\d+)(?:\s+at\s+(?P<coordinates>.*))?", line, re.IGNORECASE)):
+                spin_label = "1" if self.matrix_type == "overlap" else (header_match["spin"] or "1")
 
-    def get_onsite_values(self, center: str | None = None, orbital: str | None = None) -> dict | float | floating:
-        """Get onsite values for specific centers/orbitals.
+                if spin_label not in spin_indices:
+                    spin_indices[spin_label] = len(spin_indices)
+                    self.spins.append(Spin.up if spin_label == "1" else Spin.down)
+                current_spin_index = spin_indices[spin_label]
 
-        Args:
-            center (str | None): Specific center or None for all.
-            orbital (str | None): Specific orbital or None for all.
+                kpoint_label = header_match["kpoint"]
 
-        Returns:
-            dict | float | floating: Dict of values or single value if both specified.
-        """
-        results = {}
+                if kpoint_label not in kpoint_indices:
+                    kpoint_indices[kpoint_label] = len(kpoint_indices)
+                    coordinates = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", header_match["coordinates"] or "")
+                    self.kpoints.append(tuple(float(coordinate) for coordinate in coordinates))
+                current_kpoint_index = kpoint_indices[kpoint_label]
 
-        energy_shift = self.efermi if self.matrix_type == "hamilton" else 0
+        if not block_positions:
+            raise ValueError("Could not find any matrix block in the file.")
 
-        for i, (c, o) in enumerate(zip(self.centers, self.orbitals, strict=True)):
-            if (center is None or c == center) and (orbital is None or o == orbital):
-                values = [m[i, i].real - energy_shift for kpoint in self.matrices.values() for m in kpoint.values()]
-                avg_value = np.mean(values)
+        self.matrices = np.zeros(
+            (len(self.spins), len(self.kpoints), matrix_dimension, matrix_dimension), dtype=np.complex128
+        )
 
-                if center and orbital:
-                    return avg_value
+        line_iterator = self.iterate_lines()
+        consumed_lines = 0
 
-                results[f"{c}_{o}"] = avg_value
+        for spin_index, kpoint_index, is_imaginary_part, first_data_line in block_positions:
+            for _ in range(first_data_line - consumed_lines):
+                next(line_iterator)
 
-        return results
+            values = np.loadtxt(
+                islice(line_iterator, matrix_dimension),
+                usecols=range(1, matrix_dimension + 1),
+            )
+            consumed_lines = first_data_line + matrix_dimension
+
+            block = self.matrices[spin_index, kpoint_index]
+
+            if is_imaginary_part:
+                block.imag = values
+            else:
+                block.real = values
 
     @classmethod
     def get_default_filename(cls) -> str:
