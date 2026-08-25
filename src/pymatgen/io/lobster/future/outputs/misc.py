@@ -418,12 +418,22 @@ class LobsterMatrices(LobsterFile):
         The second pass streams every block straight into ``self.matrices``, an array
         of shape ``(n_spins, n_kpoints, n_basis_functions, n_bands)``.
 
+        LOBSTER may dump k-points in any order, and in a different order for each spin,
+        so both axes are sorted by label before the blocks are read.
+
         Returns:
             None
         """
         self.kpoints: list[tuple[float, ...]] = []
         self.basis_functions: list[str] = []
         self.spins: list[Spin] = []
+
+        KPOINT_HEADER_PATTERN = re.compile(
+            r"(?:(?:spin\s+)?(?P<spin>\d+)\s+)?kpoint\s+(?P<kpoint>\d+)(?:\s+at\s+(?P<coordinates>.*))?",
+            re.IGNORECASE,
+        )
+        BAND_PATTERN = re.compile(r"band\s+\d+")
+        FLOAT_PATTERN = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
         spin_indices: dict[str, int] = {}
         kpoint_indices: dict[str, int] = {}
@@ -433,17 +443,28 @@ class LobsterMatrices(LobsterFile):
         current_spin_index = 0
         current_kpoint_index = 0
         is_imaginary_part = False
+        rows_remaining = 0
+        is_collecting_labels = False
+        has_seen_header = False
 
-        line_iterator = self.iterate_lines()
-        line_number = -1
-
-        for line in line_iterator:
-            line_number += 1
+        for line_number, line in enumerate(self.iterate_lines()):
             stripped_line = line.strip()
             lowered_line = stripped_line.lower()
 
+            if rows_remaining:  # inside a block, these are data rows
+                rows_remaining -= 1
+
+                if is_collecting_labels:
+                    self.basis_functions.append(stripped_line.split()[0])
+                continue
+
+            is_collecting_labels = False
+
             if stripped_line.startswith("basisfunction"):
-                band_count = len(re.findall(r"band\s+\d+", line)) or len(stripped_line.split()) - 1
+                if not has_seen_header:
+                    raise ValueError(f"Found a matrix block at line {line_number} before any k-point header.")
+
+                band_count = len(BAND_PATTERN.findall(line)) or len(stripped_line.split()) - 1
 
                 if matrix_dimension and band_count != matrix_dimension:
                     raise ValueError(
@@ -454,11 +475,8 @@ class LobsterMatrices(LobsterFile):
                 block_positions.append(
                     (current_spin_index, current_kpoint_index, is_imaginary_part, line_number + 1)
                 )
-
-                if not self.basis_functions:  # labels are identical in every block
-                    for _ in range(matrix_dimension):
-                        self.basis_functions.append(next(line_iterator).split()[0])
-                        line_number += 1
+                rows_remaining = matrix_dimension
+                is_collecting_labels = not self.basis_functions
 
             elif lowered_line.endswith("real parts"):
                 is_imaginary_part = False
@@ -466,24 +484,60 @@ class LobsterMatrices(LobsterFile):
             elif lowered_line.endswith("imag parts"):
                 is_imaginary_part = True
 
-            elif "kpoint" in lowered_line and (header_match := re.search(r"(?:(?:spin\s+)?(?P<spin>\d+)\s+)?kpoint\s+(?P<kpoint>\d+)(?:\s+at\s+(?P<coordinates>.*))?", line, re.IGNORECASE)):
+            elif "kpoint" in lowered_line and (header_match := KPOINT_HEADER_PATTERN.search(line)):
+                has_seen_header = True
                 spin_label = "1" if self.matrix_type == "overlap" else (header_match["spin"] or "1")
 
                 if spin_label not in spin_indices:
                     spin_indices[spin_label] = len(spin_indices)
-                    self.spins.append(Spin.up if spin_label == "1" else Spin.down)
                 current_spin_index = spin_indices[spin_label]
 
                 kpoint_label = header_match["kpoint"]
 
                 if kpoint_label not in kpoint_indices:
                     kpoint_indices[kpoint_label] = len(kpoint_indices)
-                    coordinates = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", header_match["coordinates"] or "")
+                    coordinates = FLOAT_PATTERN.findall(header_match["coordinates"] or "")
                     self.kpoints.append(tuple(float(coordinate) for coordinate in coordinates))
                 current_kpoint_index = kpoint_indices[kpoint_label]
 
         if not block_positions:
             raise ValueError("Could not find any matrix block in the file.")
+
+        sorted_spin_labels = sorted(spin_indices, key=int)
+        sorted_kpoint_labels = sorted(kpoint_indices, key=int)
+
+        remapped_spin_indices = {spin_indices[label]: new for new, label in enumerate(sorted_spin_labels)}
+        remapped_kpoint_indices = {kpoint_indices[label]: new for new, label in enumerate(sorted_kpoint_labels)}
+
+        self.spins = [Spin.up if label == "1" else Spin.down for label in sorted_spin_labels]
+        self.kpoints = [self.kpoints[kpoint_indices[label]] for label in sorted_kpoint_labels]
+
+        # only the index fields are rewritten: the second pass reads forward and never
+        # rewinds, so block_positions must stay in ascending line number order
+        block_positions = [
+            (
+                remapped_spin_indices[spin_index],
+                remapped_kpoint_indices[kpoint_index],
+                is_imaginary_part,
+                first_data_line,
+            )
+            for spin_index, kpoint_index, is_imaginary_part, first_data_line in block_positions
+        ]
+
+        real_parts_found = {
+            (spin_index, kpoint_index)
+            for spin_index, kpoint_index, is_imaginary_part, _ in block_positions
+            if not is_imaginary_part
+        }
+        missing_real_parts = [
+            (sorted_spin_labels[spin_index], sorted_kpoint_labels[kpoint_index])
+            for spin_index in range(len(self.spins))
+            for kpoint_index in range(len(self.kpoints))
+            if (spin_index, kpoint_index) not in real_parts_found
+        ]
+
+        if missing_real_parts:
+            raise ValueError(f"No real part found for (spin, kpoint) pairs: {missing_real_parts}.")
 
         self.matrices = np.zeros(
             (len(self.spins), len(self.kpoints), matrix_dimension, matrix_dimension), dtype=np.complex128
