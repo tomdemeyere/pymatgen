@@ -34,7 +34,7 @@ class COXXCAR(LobsterInteractionsHolder):
     """
 
     interactions_regex: ClassVar[str] = (
-        r"(?i)([a-z]+\d*(?:\_\d+)?)(?:\[(\-?\d+\s+\-?\d+\s+\-?\d+)\])?(?:\[([^]\s]*)\])?(?:\(([^)]*)\))?"
+        r"(?i)([a-z]+\d*(?:\_\d+)?)(?:\[(\s?\-?\d+\s+\-?\d+\s+\-?\d+\s?)\])?(?:\[([^]\s]*)\])?(?:\(([^)]*)\))?"
     )
     coxxcar_type: ClassVar[str]
 
